@@ -52,7 +52,7 @@ event_results_df = spark.read.format('jdbc').options(
 
 # Запис даних результатів змагань у Kafka топік
 event_results_df.selectExpr("CAST(athlete_id AS STRING) as key", "to_json(struct(*)) AS value") \
-    .write \
+    .writeStream \
     .format("kafka") \
     .option("kafka.bootstrap.servers", kafka_config["bootstrap_servers"]) \
     .option("topic", kafka_input_topic) \
@@ -60,11 +60,12 @@ event_results_df.selectExpr("CAST(athlete_id AS STRING) as key", "to_json(struct
     .option("kafka.sasl.mechanism", "PLAIN") \
     .option("kafka.sasl.jaas.config",
             "org.apache.kafka.common.security.plain.PlainLoginModule required username='admin' password='VawEzo1ikLtrA8Ug8THa';") \
-    .save()
+    .start() \
+    .awaitTermination()
 
 # kafka_read_df = spark.read.format("kafka") \
 #     .option("kafka.bootstrap.servers", kafka_config["bootstrap_servers"]) \
-#      .option("kafka.security.protocol", "SASL_PLAINTEXT") \
+#     .option("kafka.security.protocol", "SASL_PLAINTEXT") \
 #     .option("kafka.sasl.mechanism", "PLAIN") \
 #     .option("kafka.sasl.jaas.config",
 #             'org.apache.kafka.common.security.plain.PlainLoginModule required username="admin" password="VawEzo1ikLtrA8Ug8THa";') \
@@ -74,62 +75,80 @@ event_results_df.selectExpr("CAST(athlete_id AS STRING) as key", "to_json(struct
 # Перетворення даних з формату Kafka (ключ/значення) у формат JSON
 # kafka_read_json_df = kafka_read_df.selectExpr("CAST(value AS STRING) as json").show(truncate=False)
 
-# # 3. Читання даних з Kafka топіка
-# # Схема для JSON даних
-# schema = StructType([
-#     StructField("athlete_id", StringType(), True),
-#     StructField("event", StringType(), True),
-#     StructField("medal", StringType(), True),
-#     StructField("result", StringType(), True)
-# ])
+# 3. Читання даних з Kafka топіка
+# Схема для JSON даних
+schema = StructType([
+    StructField("edition", StringType(), True),
+    StructField("edition_id", IntegerType(), True),
+    StructField("country_noc", StringType(), True),
+    StructField("sport", StringType(), True),
+    StructField("event", StringType(), True),
+    StructField("result_id", IntegerType(), True),
+    StructField("athlete", StringType(), True),
+    StructField("athlete_id", IntegerType(), True),
+    StructField("pos", StringType(), True),
+    StructField("medal", StringType(), True),
+    StructField("isTeamSport", StringType(), True)
+])
 
-# # Читання даних з Kafka топіка
-# kafka_df = spark.readStream.format("kafka") \
-#     .option("kafka.bootstrap.servers", kafka_bootstrap_servers) \
-#     .option("subscribe", kafka_input_topic) \
-#     .load()
+# Читання даних з Kafka топіка
+kafka_df = spark.readStream.format("kafka") \
+    .option("kafka.bootstrap.servers", kafka_config["bootstrap_servers"]) \
+    .option("kafka.security.protocol", "SASL_PLAINTEXT") \
+    .option("kafka.sasl.mechanism", "PLAIN") \
+    .option("kafka.sasl.jaas.config",
+            'org.apache.kafka.common.security.plain.PlainLoginModule required username="admin" password="VawEzo1ikLtrA8Ug8THa";') \
+    .option("subscribe", kafka_input_topic) \
+    .start() \
+    .awaitTermination()
 
-# # Перетворення даних з формату Kafka (ключ/значення) у формат JSON
-# kafka_json_df = kafka_df.selectExpr("CAST(value AS STRING)").select(from_json("value", schema).alias("data")).select("data.*")
+# Перетворення даних з формату Kafka (ключ/значення) у формат JSON
+kafka_json_df = kafka_df.selectExpr("CAST(value AS STRING)").select(from_json("value", schema).alias("data")).select("data.*").drop("country_noc")
 
-# # 4. Обробка та агрегація даних
-# # Приєднуємо результати змагань до біографічних даних атлетів за допомогою athlete_id
-# joined_df = kafka_json_df.join(athlete_bio_cleaned_df, on="athlete_id", how="inner")
+# 4. Обробка та агрегація даних
+# Приєднуємо результати змагань до біографічних даних атлетів за допомогою athlete_id
+joined_df = kafka_json_df.join(athlete_bio_cleaned_df, on="athlete_id", how="inner")
 
-# # Обчислюємо середній зріст і вагу атлетів індивідуально для кожного виду спорту, типу медалі, статі, країни
-# aggregated_df = joined_df.groupBy("sport", "medal", "gender", "country_noc") \
-#     .agg(
-#         avg("height").alias("avg_height"),
-#         avg("weight").alias("avg_weight"),
-#         current_timestamp().alias("timestamp")
-#     )
+# joined_df.show()
 
-# # 5. Запис результатів у Kafka і MySQL
-# # Функція для обробки кожної партії даних
-# def foreach_batch_function(batch_df, batch_id):
-#     # Відправка збагачених даних до Kafka
-#     batch_df.selectExpr("to_json(struct(*)) AS value") \
-#         .write \
-#         .format("kafka") \
-#         .option("kafka.bootstrap.servers", kafka_bootstrap_servers) \
-#         .option("topic", kafka_output_topic) \
-#         .save()
+# Обчислюємо середній зріст і вагу атлетів індивідуально для кожного виду спорту, типу медалі, статі, країни
+aggregated_df = joined_df.groupBy("sport", "medal", "sex", "country_noc") \
+    .agg(
+        avg("height").alias("avg_height"),
+        avg("weight").alias("avg_weight"),
+        current_timestamp().alias("timestamp")
+    )
 
-#     # Збереження збагачених даних до MySQL
-#     batch_df.write \
-#         .format("jdbc") \
-#         .option("url", jdbc_url) \
-#         .option("driver", "com.mysql.cj.jdbc.Driver") \
-#         .option("dbtable", "aggregated_results_nesvit") \
-#         .option("user", jdbc_user) \
-#         .option("password", jdbc_password) \
-#         .mode("append") \
-#         .save()
+# 5. Запис результатів у Kafka і MySQL
+# Функція для обробки кожної партії даних
+def foreach_batch_function(batch_df, batch_id):
+    # Відправка збагачених даних до Kafka
+    batch_df.selectExpr("to_json(struct(*)) AS value") \
+        .write \
+        .format("kafka") \
+        .option("kafka.bootstrap.servers", kafka_config["bootstrap_servers"]) \
+        .option("topic", kafka_output_topic) \
+        .option("kafka.security.protocol", "SASL_PLAINTEXT") \
+        .option("kafka.sasl.mechanism", "PLAIN") \
+        .option("kafka.sasl.jaas.config",
+            "org.apache.kafka.common.security.plain.PlainLoginModule required username='admin' password='VawEzo1ikLtrA8Ug8THa';") \
+        .save()
 
-# # 6. Запуск потоку обробки даних
-# # Налаштування потоку даних для обробки кожної партії
-# aggregated_df.writeStream \
-#     .foreachBatch(foreach_batch_function) \
-#     .outputMode("update") \
-#     .start() \
-#     .awaitTermination()
+    # Збереження збагачених даних до MySQL
+    batch_df.write \
+        .format("jdbc") \
+        .option("url", jdbc_url) \
+        .option("driver", "com.mysql.cj.jdbc.Driver") \
+        .option("dbtable", "aggregated_results_nesvit") \
+        .option("user", jdbc_user) \
+        .option("password", jdbc_password) \
+        .mode("append") \
+        .save()
+
+# 6. Запуск потоку обробки даних
+# Налаштування потоку даних для обробки кожної партії
+aggregated_df.writeStream \
+    .foreachBatch(foreach_batch_function) \
+    .outputMode("update") \
+    .start() \
+    .awaitTermination()
