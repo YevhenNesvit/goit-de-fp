@@ -19,19 +19,19 @@ dag = DAG(
 # Tasks
 landing_to_bronze = SparkSubmitOperator(
     task_id="landing_to_bronze",
-    application="/second_part/landing_to_bronze.py",
+    application="/app/second_part/landing_to_bronze.py",
     dag=dag,
 )
 
 bronze_to_silver = SparkSubmitOperator(
     task_id="bronze_to_silver",
-    application="second_part/bronze_to_silver.py",
+    application="/app/second_part/bronze_to_silver.py",
     dag=dag,
 )
 
 silver_to_gold = SparkSubmitOperator(
     task_id="silver_to_gold",
-    application="second_part/silver_to_gold.py",
+    application="/app/second_part/silver_to_gold.py",
     dag=dag,
 )
 

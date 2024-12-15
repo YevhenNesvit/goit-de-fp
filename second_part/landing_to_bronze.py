@@ -1,6 +1,7 @@
 import requests
 from pyspark.sql import SparkSession
 
+
 def download_data(local_file_path):
     url = "https://ftp.goit.study/neoversity/"
     downloading_url = url + local_file_path + ".csv"
@@ -16,17 +17,19 @@ def download_data(local_file_path):
     else:
         exit(f"Failed to download the file. Status code: {response.status_code}")
 
+
 def save_to_bronze(table_name):
     spark = SparkSession.builder.appName("LandingToBronze").getOrCreate()
-    
+
     # Read CSV file
     df = spark.read.csv(f"{table_name}.csv", header=True, inferSchema=True)
-    
+
     # Save as Parquet
     output_path = f"second_part/bronze/{table_name}"
     df.write.mode("overwrite").parquet(output_path)
     print(f"Data saved to {output_path}")
     df.show()
+
 
 tables = ["athlete_bio", "athlete_event_results"]
 for table in tables:

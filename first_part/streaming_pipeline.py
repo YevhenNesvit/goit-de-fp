@@ -5,7 +5,7 @@ os.environ['PYSPARK_SUBMIT_ARGS'] = '--packages org.apache.spark:spark-sql-kafka
 
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, avg, current_timestamp, from_json
-from pyspark.sql.types import StructType, StructField, StringType, IntegerType, FloatType
+from pyspark.sql.types import StructType, StructField, StringType, IntegerType
 from configs import kafka_config, jdbc_url, jdbc_user, jdbc_password
 
 # Налаштування Kafka і підключення до MySQL
@@ -52,7 +52,8 @@ event_results_df.selectExpr("CAST(athlete_id AS STRING) as key", "to_json(struct
     .option("kafka.security.protocol", "SASL_PLAINTEXT") \
     .option("kafka.sasl.mechanism", "PLAIN") \
     .option("kafka.sasl.jaas.config",
-            f"org.apache.kafka.common.security.plain.PlainLoginModule required username='{kafka_config['username']}' password='{kafka_config['password']}';") \
+            f"org.apache.kafka.common.security.plain.PlainLoginModule required username='{kafka_config['username']}' \
+            password='{kafka_config['password']}';") \
     .save()
 
 # Читання даних з Kafka топіка
@@ -94,6 +95,7 @@ aggregated_stream_df = joined_stream_df.groupBy("sport", "medal", "sex", "countr
     current_timestamp().alias("timestamp")
 )
 
+
 # Функція для запису даних у Kafka та MySQL
 def foreach_batch_function(batch_df, batch_id):
     batch_df.show(truncate=False)
@@ -104,7 +106,8 @@ def foreach_batch_function(batch_df, batch_id):
         .option("kafka.security.protocol", "SASL_PLAINTEXT") \
         .option("kafka.sasl.mechanism", "PLAIN") \
         .option("kafka.sasl.jaas.config",
-                f"org.apache.kafka.common.security.plain.PlainLoginModule required username='{kafka_config['username']}' password='{kafka_config['password']}';") \
+                f"org.apache.kafka.common.security.plain.PlainLoginModule required username='{kafka_config['username']}' \
+                password='{kafka_config['password']}';") \
         .save()
 
     # Запис у MySQL
@@ -114,6 +117,7 @@ def foreach_batch_function(batch_df, batch_id):
         dbtable="aggregated_results_nesvit",
         user=jdbc_user,
         password=jdbc_password).mode("append").save()
+
 
 # 6. Запуск потоку
 aggregated_stream_df.writeStream \
